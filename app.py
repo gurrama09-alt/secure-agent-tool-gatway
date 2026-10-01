@@ -9,6 +9,7 @@ import re
 import sqlite3
 import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -32,7 +33,13 @@ STATIC = BASE / "static"
 SECRET = os.getenv("PNC3_SECRET", "pnc3-demo-secret-change-me")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-app = FastAPI(title="Secure Agent Tool Gateway", version="1.0.0")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="Secure Agent Tool Gateway", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -77,6 +84,9 @@ SUSPICIOUS_PATTERNS = [
     r"disregard\s+(all\s+)?(prior|previous)\s+(system\s+|developer\s+)?instructions",
     r"ignore\s+(the\s+)?(system|developer|safety|security)\s+(prompt|instructions|rules|policies)",
     r"(override|replace|forget)\s+(the\s+)?(system|developer|safety)\s+(prompt|instructions|rules)",
+    r"follow\s+(any|all)\s+instructions\s+(inside|in)\s+(the\s+)?document",
+    r"follow\s+(the\s+)?document\s+instructions\s+exactly\s+as\s+written",
+    r"even\s+if\s+they\s+differ\s+(from|with)\s+your\s+(normal|usual)\s+(rules|instructions)",
     r"bypass\s+(the\s+)?(gateway|security|policy)",
     r"disable\s+(the\s+)?(gateway|security)",
     r"reveal\s+(the\s+)?(system|hidden)\s+prompt",
@@ -250,10 +260,6 @@ def seed(conn):
             ("p-008","Global database delete block","*","database.delete","BLOCK",100,json.dumps([]),1,now_iso()),
         ]
         conn.executemany("INSERT INTO policies VALUES (?,?,?,?,?,?,?,?,?)", policies)
-
-
-@app.on_event("startup")
-def startup(): init_db()
 
 
 class LoginIn(BaseModel):

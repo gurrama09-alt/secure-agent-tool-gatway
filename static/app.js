@@ -10,7 +10,7 @@ function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&l
 async function api(path, opts={}){opts.headers=Object.assign({'Content-Type':'application/json'},opts.headers||{}); if(token) opts.headers.Authorization='Bearer '+token; const r=await fetch(path,opts); const data=await r.json().catch(()=>({})); if(!r.ok) throw new Error(data.detail||'Request failed'); return data;}
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200)}
 function statusBadge(s){let c=s==='ALLOW'||s==='SUCCESS'||s==='APPROVED'?'allow':s==='BLOCK'||s==='DENIED'?'block':s==='REQUIRE_APPROVAL'||s==='PENDING'?'approval':'sanitize';return `<span class="status ${c}">${esc(s)}</span>`}
-function navTo(page){pages.forEach(p=>{const el=$('page-'+p); if(el) el.classList.toggle('active-page',p===page)});document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('pageTitle').textContent=page==='chat'?'Gemini Chat':page==='simulator'?'Adversarial Test Lab':page==='requests'?'Tool Requests':page==='events'?'Security Events':page[0].toUpperCase()+page.slice(1); if(page==='overview')loadOverview(); if(page==='chat')loadChat(); if(page==='simulator')loadSimulator(); if(page==='requests')loadRequests(); if(page==='approvals')loadApprovals(); if(page==='policies')loadPolicies(); if(page==='tools')loadTools(); if(page==='agents')loadAgents(); if(page==='events')loadEvents();}
+function navTo(page){pages.forEach(p=>{const el=$('page-'+p); if(el) el.classList.toggle('active-page',p===page)});document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('pageTitle').textContent=page==='chat'?'Chat bot':page==='simulator'?'Adversarial Test Lab':page==='requests'?'Tool Requests':page==='events'?'Security Events':page[0].toUpperCase()+page.slice(1); if(page==='overview')loadOverview(); if(page==='chat')loadChat(); if(page==='simulator')loadSimulator(); if(page==='requests')loadRequests(); if(page==='approvals')loadApprovals(); if(page==='policies')loadPolicies(); if(page==='tools')loadTools(); if(page==='agents')loadAgents(); if(page==='events')loadEvents();}
 document.querySelectorAll('.nav').forEach(b=>b.addEventListener('click',()=>navTo(b.dataset.page)));
 
 async function init(){
@@ -21,9 +21,24 @@ function showLogin(){$('loginView').classList.remove('hidden');$('appView').clas
 function showApp(){$('loginView').classList.add('hidden');$('appView').classList.remove('hidden');$('userInfo').textContent=`${me.username} • ${me.role}`;$('rolePill').textContent=me.role}
 $('loginForm').addEventListener('submit',async e=>{e.preventDefault();$('loginError').textContent='';try{const d=await api('/api/auth/login',{method:'POST',body:JSON.stringify({username:$('username').value,password:$('password').value})});token=d.token;localStorage.setItem('pnc3_token',token);me=d.user;showApp();toast('Signed in');await loadAll()}catch(err){clearSession();$('loginError').textContent=err.message;showLogin();}});
 $('logoutBtn').addEventListener('click',()=>{clearSession();location.reload()});$('refreshBtn').addEventListener('click',loadAll);
-$('saveGeminiKeyBtn').addEventListener('click',()=>{const key=$('geminiKeyInput').value.trim(); if(!key){localStorage.removeItem(GEMINI_KEY_STORAGE); toast('Gemini key cleared'); return;} localStorage.setItem(GEMINI_KEY_STORAGE,key); toast('Gemini key saved');});
+$('saveGeminiKeyBtn').addEventListener('click',()=>{const key=$('geminiKeyInput').value.trim(); if(!key){localStorage.removeItem(GEMINI_KEY_STORAGE); toast('API key cleared'); return;} localStorage.setItem(GEMINI_KEY_STORAGE,key); toast('API key saved');});
 const storedGeminiKey = localStorage.getItem(GEMINI_KEY_STORAGE) || '';
 if(storedGeminiKey){$('geminiKeyInput').value = storedGeminiKey;}
+
+const scanTypePlaceholders = {
+  prompt: 'Enter the prompt',
+  chat: 'Enter the chat transcript',
+  document: 'Enter the document',
+  code: 'Enter the code'
+};
+
+function updateScanPlaceholder() {
+  const type = $('scanType').value;
+  $('scanContent').placeholder = scanTypePlaceholders[type] || 'Enter the prompt';
+}
+
+$('scanType').addEventListener('change', updateScanPlaceholder);
+updateScanPlaceholder();
 
 $('scanFile').addEventListener('change', async event => {
   const file = event.target.files && event.target.files[0];
@@ -77,7 +92,7 @@ async function approval(id,act){try{await api(`/api/approvals/${id}/${act}`,{met
 
 async function loadChatAgents(){try{const a=await api('/api/agents');$('chatAgent').innerHTML=a.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}catch(e){}}
 function addMsg(kind,text,sec){const d=document.createElement('div');d.className='msg '+kind;d.innerHTML=`<div class="bubble">${esc(text)}${sec?`<div class="security-card">${sec}</div>`:''}</div>`;$('chatMessages').appendChild(d);$('chatMessages').scrollTop=$('chatMessages').scrollHeight}
-function loadChat(){if(!$('chatMessages').children.length)addMsg('bot','Welcome to the Secure Agent Tool Gateway. I act like a Gemini-style assistant and route every tool action through the secure gateway before execution.');}
+function loadChat(){if(!$('chatMessages').children.length)addMsg('bot','Welcome to the Secure Agent Tool Gateway. I act like a chat bot and route every tool action through the secure gateway before execution.');}
 $('chatForm').addEventListener('submit',async e=>{e.preventDefault();const text=$('chatText').value.trim();if(!text)return;addMsg('user',text);$('chatText').value='';try{const apiKey=$('geminiKeyInput').value.trim() || localStorage.getItem(GEMINI_KEY_STORAGE) || '';const d=await api('/api/chat',{method:'POST',body:JSON.stringify({agent_id:$('chatAgent').value,message:text,api_key:apiKey || null})});let sec='';if(d.tool_call||d.decision==='BLOCK'){const violations=(d.rule_violations||[d.reason]).filter(Boolean);sec=`<b>${esc(d.decision)}</b> • Safety ${d.safety_score ?? Math.max(0,100-(d.risk_score||0))}% • Risk ${d.risk_score||0} (${esc(d.risk_level||'LOW')})<br>${violations.map(esc).join('<br>')}<br>${d.execution_status?`<span class="muted">Latency: ${d.latency_ms} ms • ${esc(d.execution_status)}</span>`:''}`}addMsg('bot',d.message,sec);await loadOverview();await loadApprovalsBadge()}catch(err){addMsg('bot','Gateway error: '+err.message)}});
 
 async function loadSimulator(){const grid=$('scenarioGrid');grid.innerHTML=Object.entries(scenarioNames).map(([k,v])=>`<div class="scenario"><h4>${esc(v)}</h4><p>Run a safe simulated ${esc(v.toLowerCase())} through the real gateway.</p><button class="btn primary small" onclick="simulate('${k}')">Run scenario</button></div>`).join('')}
